@@ -64,6 +64,11 @@ options:
     required: false
     default: ['default']
     version_added: "1.6"
+  cache_subnet_group_name:
+    description:
+      - The subnet group that this cache cluster should be deployed into. Only used if inside a VPC.
+    required: false
+    default: None
   cache_security_groups:
     description:
       - A list of cache security group names to associate with this cache cluster
@@ -158,7 +163,7 @@ class ElastiCacheManager(object):
     EXIST_STATUSES = ['available', 'creating', 'rebooting', 'modifying']
 
     def __init__(self, module, name, engine, cache_engine_version, node_type,
-                 num_nodes, cache_port, cache_security_groups, security_group_ids, zone, wait,
+                 num_nodes, cache_port, cache_subnet_group_name, cache_security_groups, security_group_ids, zone, wait,
                  hard_modify, aws_access_key, aws_secret_key, region):
         self.module = module
         self.name = name
@@ -167,6 +172,7 @@ class ElastiCacheManager(object):
         self.node_type = node_type
         self.num_nodes = num_nodes
         self.cache_port = cache_port
+        self.cache_subnet_group_name = cache_subnet_group_name
         self.cache_security_groups = cache_security_groups
         self.security_group_ids = security_group_ids
         self.zone = zone
@@ -223,6 +229,7 @@ class ElastiCacheManager(object):
                                                       cache_node_type=self.node_type,
                                                       engine=self.engine,
                                                       engine_version=self.cache_engine_version,
+                                                      cache_subnet_group_name=self.cache_subnet_group_name,
                                                       cache_security_group_names=self.cache_security_groups,
                                                       security_group_ids=self.security_group_ids,
                                                       preferred_availability_zone=self.zone,
@@ -485,6 +492,7 @@ def main():
             node_type={'required': False, 'default': 'cache.m1.small'},
             num_nodes={'required': False, 'default': None, 'type': 'int'},
             cache_port={'required': False, 'default': 11211, 'type': 'int'},
+            cache_subnet_group_name={'required': False, 'default': None},
             cache_security_groups={'required': False, 'default': ['default'],
                                    'type': 'list'},
             security_group_ids={'required': False, 'default': [],
@@ -508,6 +516,7 @@ def main():
     node_type = module.params['node_type']
     num_nodes = module.params['num_nodes']
     cache_port = module.params['cache_port']
+    cache_subnet_group_name = module.params['cache_subnet_group_name']
     cache_security_groups = module.params['cache_security_groups']
     security_group_ids = module.params['security_group_ids']
     zone = module.params['zone']
@@ -523,6 +532,7 @@ def main():
     elasticache_manager = ElastiCacheManager(module, name, engine,
                                              cache_engine_version, node_type,
                                              num_nodes, cache_port,
+                                             cache_subnet_group_name,
                                              cache_security_groups,
                                              security_group_ids, zone, wait,
                                              hard_modify, aws_access_key,
