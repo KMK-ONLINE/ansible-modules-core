@@ -62,7 +62,7 @@ options:
     description:
       - A list of vpc security group names to associate with this cache cluster. Only use if inside a vpc
     required: false
-    default: ['default']
+    default: []
     version_added: "1.6"
   cache_subnet_group_name:
     description:
@@ -73,7 +73,7 @@ options:
     description:
       - A list of cache security group names to associate with this cache cluster
     required: false
-    default: ['default']
+    default: []
   zone:
     description:
       - The EC2 Availability Zone in which the cache cluster will be created
@@ -493,7 +493,7 @@ def main():
             num_nodes={'required': False, 'default': None, 'type': 'int'},
             cache_port={'required': False, 'default': 11211, 'type': 'int'},
             cache_subnet_group_name={'required': False, 'default': None},
-            cache_security_groups={'required': False, 'default': ['default'],
+            cache_security_groups={'required': False, 'default': [],
                                    'type': 'list'},
             security_group_ids={'required': False, 'default': [],
                                    'type': 'list'},
