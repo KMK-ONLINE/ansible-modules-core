@@ -102,6 +102,11 @@ options:
     required: false
     default: null
     version_added: "2.2"
+  private_ip:
+    description:
+      - private ip address for the instance, auto-assigned if left blank
+    required: false
+    version_added: "2.2"
   persistent_boot_disk:
     description:
       - if set, create the instance with a persistent boot disk
@@ -342,6 +347,7 @@ def create_instances(module, gce, instance_names):
     metadata = module.params.get('metadata')
     network = module.params.get('network')
     subnetwork = module.params.get('subnetwork')
+    private_ip = module.params.get('private_ip')
     persistent_boot_disk = module.params.get('persistent_boot_disk')
     disks = module.params.get('disks')
     state = module.params.get('state')
@@ -356,6 +362,8 @@ def create_instances(module, gce, instance_names):
 
     if external_ip == "none":
         instance_external_ip = None
+    elif external_ip == 'ephemeral':
+        instance_external_ip = 'ephemeral'
     elif not isinstance(external_ip, basestring):
         try:
             if len(external_ip) != 0:
@@ -371,7 +379,12 @@ def create_instances(module, gce, instance_names):
         except GoogleBaseError as e:
             module.fail_json(msg='Unexpected error attempting to get a static ip %s, error: %s' % (external_ip, e.value))
     else:
-        instance_external_ip = external_ip
+        # check if external_ip is an ip or a name
+        try:
+            socket.inet_aton(external_ip)
+            instance_external_ip = GCEAddress(id='unknown', name='unknown', address=external_ip, region='unknown', driver=gce)
+        except socket.error:
+            instance_external_ip = gce.ex_get_address(external_ip)
 
     new_instances = []
     changed = False
@@ -455,6 +468,8 @@ def create_instances(module, gce, instance_names):
             gce_args['ex_preemptible'] = preemptible
         if subnetwork is not None:
             gce_args['ex_subnetwork'] = subnetwork
+        if private_ip is not None:
+            gce_args['ex_private_ip'] = private_ip
 
         inst = None
         try:
@@ -552,6 +567,7 @@ def main():
             name = dict(),
             network = dict(default='default'),
             subnetwork = dict(),
+            private_ip = dict(),
             persistent_boot_disk = dict(type='bool', default=False),
             disks = dict(type='list'),
             state = dict(choices=['active', 'present', 'absent', 'deleted',
@@ -585,6 +601,7 @@ def main():
     name = module.params.get('name')
     network = module.params.get('network')
     subnetwork = module.params.get('subnetwork')
+    private_ip = module.params.get('private_ip')
     persistent_boot_disk = module.params.get('persistent_boot_disk')
     state = module.params.get('state')
     tags = module.params.get('tags')
@@ -603,6 +620,10 @@ def main():
     if not inames:
         module.fail_json(msg='Must specify a "name" or "instance_names"',
                          changed=False)
+
+    if len(inames) > 1 and private_ip:
+        module.fail_json(msg='Can only set private ip for single instance')
+
     if not zone:
         module.fail_json(msg='Must specify a "zone"', changed=False)
 
