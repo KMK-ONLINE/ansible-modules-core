@@ -377,7 +377,12 @@ def create_instances(module, gce, instance_names):
         except GoogleBaseError as e:
             module.fail_json(msg='Unexpected error attempting to get a static ip %s, error: %s' % (external_ip, e.value))
     else:
-        instance_external_ip = external_ip
+        # check if external_ip is an ip or a name
+        try:
+            socket.inet_aton(external_ip)
+            instance_external_ip = GCEAddress(id='unknown', name='unknown', address=external_ip, region='unknown', driver=gce)
+        except socket.error:
+            instance_external_ip = gce.ex_get_address(external_ip)
 
     new_instances = []
     changed = False
