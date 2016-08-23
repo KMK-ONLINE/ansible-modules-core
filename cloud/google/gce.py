@@ -30,8 +30,9 @@ options:
   image:
     description:
        - image string to use for the instance
+       - required unless 'disks_struct' is set
     required: false
-    default: "debian-7"
+    default: null
   instance_names:
     description:
       - a comma-separated list of instance names to create or destroy
@@ -121,6 +122,13 @@ options:
     required: false
     default: null
     version_added: "1.7"
+  disks_struct:
+    description:
+      - GCE-specific formatted disks[] structure. URLs for 'sourceImage' and
+        'diskType' in 'initializeParams' will be retrieved automatically.
+    required: false
+    default: null
+    version_added: "2.2"
   state:
     description:
       - desired state of the resource
@@ -183,12 +191,36 @@ EXAMPLES = '''
     machine_type: n1-standard-1
     image: debian-7
 
+# Example with local-ssd
+- local_action:
+    module: gce
+    name: test-instance
+    zone: us-central1-a
+    machine_type: n1-standard-1
+    disks_struct:
+      - boot: true
+        type: PERSISTENT
+        mode: READ_WRITE
+        deviceName: test-instance
+        autoDelete: true
+        initializeParams:
+          diskName: test-instance
+          diskType: pd-standard
+          sourceImage: debian-7
+      - boot: false
+        type: SCRATCH
+        mode: READ_WRITE
+        deviceName: test-instance-lokal
+        autoDelete: true
+        initializeParams:
+          diskType: local-ssd
+
 # Example using defaults and with metadata to create a single 'foo' instance
 - local_action:
     module: gce
     name: foo
+    image: debian-7
     metadata: '{"db":"postgres", "group":"qa", "id":500}'
-
 
 # Launch instances from a control node, runs some tasks on the new instances,
 # and then terminate them
@@ -258,7 +290,6 @@ EXAMPLES = '''
       local_action: wait_for host={{item.public_ip}} port=22 delay=10
                     timeout=60 state=started
       with_items: {{gce.instance_data}}
-
 '''
 
 import socket
@@ -301,7 +332,7 @@ def get_instance_info(inst):
     except:
         subnetname = None
     if 'disks' in inst.extra:
-        disk_names = [disk_info['source'].split('/')[-1]
+        disk_names = [disk_info['deviceName']
                       for disk_info
                       in sorted(inst.extra['disks'],
                                 key=lambda disk_info: disk_info['index'])]
@@ -350,6 +381,7 @@ def create_instances(module, gce, instance_names):
     private_ip = module.params.get('private_ip')
     persistent_boot_disk = module.params.get('persistent_boot_disk')
     disks = module.params.get('disks')
+    disks_struct = module.params.get('disks_struct')
     state = module.params.get('state')
     tags = module.params.get('tags')
     zone = module.params.get('zone')
@@ -401,6 +433,17 @@ def create_instances(module, gce, instance_names):
     lc_machine_type = gce.ex_get_size(machine_type)
     lc_zone = gce.ex_get_zone(zone)
 
+    for disk_struct in disks_struct or []:
+        if 'initializeParams' in disk_struct:
+            if 'sourceImage' in disk_struct['initializeParams']:
+                ds_image = disk_struct['initializeParams']['sourceImage']
+                ds_image = gce.ex_get_image(ds_image)
+                disk_struct['initializeParams']['sourceImage'] = ds_image.extra['selfLink']
+            if 'diskType' in disk_struct['initializeParams']:
+                ds_disktype = disk_struct['initializeParams']['diskType']
+                ds_disktype = gce.ex_get_disktype(ds_disktype)
+                disk_struct['initializeParams']['diskType'] = ds_disktype.extra['selfLink']
+
     # Try to convert the user's metadata value into the format expected
     # by GCE.  First try to ensure user has proper quoting of a
     # dictionary-like syntax using 'literal_eval', then convert the python
@@ -428,7 +471,11 @@ def create_instances(module, gce, instance_names):
         else:
             metadata = md
 
-    lc_image = LazyDiskImage(module, gce, image, lc_disks)
+    if image:
+        lc_image = LazyDiskImage(module, gce, image, lc_disks)
+    else:
+        lc_image = lambda: None
+
     ex_sa_perms = []
     bad_perms = []
     if service_account_permissions:
@@ -447,6 +494,8 @@ def create_instances(module, gce, instance_names):
 
     for name in instance_names:
         pd = None
+        if disks_struct:
+            pd = None
         if lc_disks:
             pd = lc_disks[0]
         elif persistent_boot_disk:
@@ -460,7 +509,7 @@ def create_instances(module, gce, instance_names):
             ex_network=network, ex_tags=tags, ex_metadata=metadata,
             ex_boot_disk=pd, ex_can_ip_forward=ip_forward,
             external_ip=instance_external_ip, ex_disk_auto_delete=disk_auto_delete,
-            ex_service_accounts=ex_sa_perms
+            ex_service_accounts=ex_sa_perms, ex_disks_gce_struct=disks_struct
         )
         if preemptible is not None:
             gce_args['ex_preemptible'] = preemptible
@@ -558,7 +607,7 @@ def change_instance_state(module, gce, instance_names, zone_name, state):
 def main():
     module = AnsibleModule(
         argument_spec = dict(
-            image = dict(default='debian-7'),
+            image = dict(),
             instance_names = dict(),
             machine_type = dict(default='n1-standard-1'),
             metadata = dict(),
@@ -568,6 +617,7 @@ def main():
             private_ip = dict(),
             persistent_boot_disk = dict(type='bool', default=False),
             disks = dict(type='list'),
+            disks_struct = dict(type='list'),
             state = dict(choices=['active', 'present', 'absent', 'deleted',
                                   'started', 'stopped', 'terminated'],
                          default='present'),
@@ -601,6 +651,8 @@ def main():
     subnetwork = module.params.get('subnetwork')
     private_ip = module.params.get('private_ip')
     persistent_boot_disk = module.params.get('persistent_boot_disk')
+    disks = module.params.get('disks')
+    disks_struct = module.params.get('disks_struct')
     state = module.params.get('state')
     tags = module.params.get('tags')
     zone = module.params.get('zone')
@@ -624,6 +676,9 @@ def main():
 
     if not zone:
         module.fail_json(msg='Must specify a "zone"', changed=False)
+
+    if (image or disks) and disks_struct:
+        module.fail_json(msg='Cannot specify "image" or "disks" if "disks_struct" is set')
 
     if preemptible is not None and hasattr(libcloud, '__version__') and libcloud.__version__ < '0.20':
         module.fail_json(msg="Apache Libcloud 0.20.0+ is required to use 'preemptible' option",
