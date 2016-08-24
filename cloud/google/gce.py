@@ -394,6 +394,8 @@ def create_instances(module, gce, instance_names):
 
     if external_ip == "none":
         instance_external_ip = None
+    elif external_ip == 'ephemeral':
+        instance_external_ip = 'ephemeral'
     elif not isinstance(external_ip, basestring):
         try:
             if len(external_ip) != 0:
