@@ -191,7 +191,7 @@ EXAMPLES = '''
     machine_type: n1-standard-1
     image: debian-7
 
-# Example with local-ssd
+# Example with local-ssd and extra pd
 - local_action:
     module: gce
     name: test-instance
@@ -214,6 +214,11 @@ EXAMPLES = '''
         autoDelete: true
         initializeParams:
           diskType: local-ssd
+      - boot: false
+        type: PERSISTENT
+        deviceName: test-instance-pd
+        autoDelete: true
+        source: test-instance-pd # Assume the disk was already created
 
 # Example using defaults and with metadata to create a single 'foo' instance
 - local_action:
