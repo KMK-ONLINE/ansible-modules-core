@@ -445,6 +445,10 @@ def create_instances(module, gce, instance_names):
                 ds_disktype = disk_struct['initializeParams']['diskType']
                 ds_disktype = gce.ex_get_disktype(ds_disktype)
                 disk_struct['initializeParams']['diskType'] = ds_disktype.extra['selfLink']
+        elif 'source' in disk_struct:
+            ds_source = disk_struct['source']
+            ds_source = gce.ex_get_volume(ds_source, zone=zone)
+            disk_struct['source'] = ds_source.extra['selfLink']
 
     # Try to convert the user's metadata value into the format expected
     # by GCE.  First try to ensure user has proper quoting of a
