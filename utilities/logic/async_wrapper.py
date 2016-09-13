@@ -82,6 +82,7 @@ def _run_module(wrapped_cmd, jid, job_path):
     result = {}
 
     outdata = ''
+    stderr = ''
     try:
         cmd = shlex.split(wrapped_cmd)
         script = subprocess.Popen(cmd, shell=False, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -105,6 +106,7 @@ def _run_module(wrapped_cmd, jid, job_path):
             "failed" : 1,
             "cmd" : wrapped_cmd,
             "data" : outdata, # temporary notice only
+            "stderr" : stderr,
             "msg" : traceback.format_exc()
         }
         result['ansible_job_id'] = jid
