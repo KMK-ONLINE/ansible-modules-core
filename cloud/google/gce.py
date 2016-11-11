@@ -204,6 +204,7 @@ EXAMPLES = '''
         deviceName: test-instance
         autoDelete: true
         initializeParams:
+          diskSizeGb: 10
           diskName: test-instance
           diskType: pd-standard
           sourceImage: debian-7
