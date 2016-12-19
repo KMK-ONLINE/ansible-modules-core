@@ -308,6 +308,15 @@ def unset_mount(module, args):
 
     return (args['name'], changed)
 
+def _set_fstab_args(args):
+    result = []
+    if 'fstab' in args and args['fstab'] != '/etc/fstab':
+        if get_platform().lower().endswith('bsd'):
+            result.append('-F')
+        else:
+            result.append('-T')
+        result.append(args['fstab'])
+    return result
 
 def mount(module, args):
     """Mount up a path or remount if needed."""
@@ -317,13 +326,9 @@ def mount(module, args):
     cmd = [mount_bin]
 
     if ismount(name):
-        cmd += ['-o', 'remount']
+        return remount(module, mount_bin, args)
 
-    if args['fstab'] != '/etc/fstab':
-        if get_platform() == 'FreeBSD':
-            cmd += ['-F', args['fstab']]
-        elif get_platform() == 'Linux':
-            cmd += ['-T', args['fstab']]
+    cmd += _set_fstab_args(args)
 
     cmd += [name]
 
@@ -348,6 +353,40 @@ def umount(module, dest):
     else:
         return rc, out+err
 
+def remount(module, mount_bin, args):
+    ''' will try to use -o remount first and fallback to unmount/mount if unsupported'''
+    msg = ''
+    cmd = [mount_bin]
+
+    # multiplatform remount opts
+    if get_platform().lower().endswith('bsd'):
+        cmd += ['-u']
+    else:
+        cmd += ['-o', 'remount' ]
+
+    cmd += _set_fstab_args(args)
+    cmd += [ args['name'], ]
+    out = err = ''
+    try:
+        if get_platform().lower().endswith('bsd'):
+            # Note: Forcing BSDs to do umount/mount due to BSD remount not
+            # working as expected (suspect bug in the BSD mount command)
+            # Interested contributor could rework this to use mount options on
+            # the CLI instead of relying on fstab
+            # https://github.com/ansible/ansible-modules-core/issues/5591
+            rc = 1
+        else:
+            rc, out, err = module.run_command(cmd)
+    except:
+        rc = 1
+
+    if rc != 0:
+        msg = out + err
+        if ismount(args['name']):
+            rc, msg = umount(module, args['name'])
+        if rc == 0:
+            rc, msg = mount(module, args)
+    return rc, msg
 
 # Note if we wanted to put this into module_utils we'd have to get permission
 # from @jupeter -- https://github.com/ansible/ansible-modules-core/pull/2923
@@ -369,7 +408,7 @@ def is_bind_mounted(module, linux_mounts, dest, src=None, fstype=None):
 
     is_mounted = False
 
-    if get_platform() == 'Linux':
+    if get_platform() == 'Linux' and linux_mounts is not None:
         if src is None:
             # That's for unmounted/absent
             if dest in linux_mounts:
@@ -410,7 +449,7 @@ def get_linux_mounts(module):
     try:
         f = open(mntinfo_file)
     except IOError:
-        module.fail_json(msg="Cannot open file %s" % mntinfo_file)
+        return
 
     lines = map(str.strip, f.readlines())
 
@@ -575,6 +614,11 @@ def main():
     if get_platform() == 'Linux':
         linux_mounts = get_linux_mounts(module)
 
+        if linux_mounts is None:
+            args['warnings'] = (
+                'Cannot open file /proc/self/mountinfo. '
+                'Bind mounts might be misinterpreted.')
+
     # Override defaults with user specified params
     for key in ('src', 'fstype', 'passno', 'opts', 'dump', 'fstab'):
         if module.params[key] is not None:
@@ -650,8 +694,7 @@ def main():
         elif 'bind' in args.get('opts', []):
             changed = True
 
-            if is_bind_mounted(
-                    module, linux_mounts, name, args['src'], args['fstype']):
+            if is_bind_mounted( module, linux_mounts, name, args['src'], args['fstype']):
                 changed = False
 
             if changed and not module.check_mode:
